@@ -63,6 +63,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/vmscan.h>
 
+/* [PHW] for pfp */
+struct pref_friendly_page *pref_friendly_page_head;
+EXPORT_SYMBOL(pref_friendly_page_head);
+
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
 	unsigned long nr_to_reclaim;
@@ -4641,6 +4645,8 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
  */
 void kswapd_run(int nid)
 {
+    /* [PHW] init global struct */
+	pref_friendly_page_head = NULL;
 	pg_data_t *pgdat = NODE_DATA(nid);
 
 	if (pgdat->kswapd)

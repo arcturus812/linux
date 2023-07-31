@@ -30,6 +30,14 @@
 #include <linux/kasan.h>
 #include <linux/memremap.h>
 
+/* [PHW] pfp struct */
+struct pref_friendly_page{
+    unsigned long long pfn;
+    struct page *page;
+    struct temp_pfp *next;
+};
+
+
 struct mempolicy;
 struct anon_vma;
 struct anon_vma_chain;
