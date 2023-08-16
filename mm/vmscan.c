@@ -1745,7 +1745,7 @@ retry:
 		if (!ignore_references)
 			references = folio_check_references(folio, sc);
 
-		switch (references) {
+		switch (references) { /* [PHW] if page referenced, PAGEREF_ACTIVE or PAGEREF_KEEP will excute */
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
 		case PAGEREF_KEEP:
@@ -4470,6 +4470,9 @@ static void kswapd_try_to_sleep(pg_data_t *pgdat, int alloc_order, int reclaim_o
  * If there are applications that are active memory-allocators
  * (most normal use), this basically shouldn't matter.
  */
+/* [PHW]
+ * modified kswapd must shrink first pf list
+ * */
 static int kswapd(void *p)
 {
 	unsigned int alloc_order, reclaim_order;

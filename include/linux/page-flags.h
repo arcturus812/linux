@@ -199,7 +199,7 @@ enum pageflags {
 	PG_vmemmap_self_hosted = PG_owner_priv_1,
 #endif
     /* [PHW] add 1bit for pf page */
-    PG_prefetcher_friendly,
+    PG_pref,
 };
 
 #define PAGEFLAGS_MASK		((1UL << NR_PAGEFLAGS) - 1)
@@ -484,8 +484,8 @@ PAGEFLAG(LRU, lru, PF_HEAD) __CLEARPAGEFLAG(LRU, lru, PF_HEAD)
 	TESTCLEARFLAG(LRU, lru, PF_HEAD)
 PAGEFLAG(Active, active, PF_HEAD) __CLEARPAGEFLAG(Active, active, PF_HEAD)
 	TESTCLEARFLAG(Active, active, PF_HEAD)
-PAGEFLAG(Prefetcher_friendly, prefetcher_friendly, PF_HEAD) __CLEARPAGEFLAG(prefetcher_friendly, prefetcher_friendly, PF_HEAD)
-	TESTCLEARFLAG(Prefetcher_friendly, prefetcher_friendly, PF_HEAD)
+PAGEFLAG(Pref, pref, PF_HEAD) __CLEARPAGEFLAG(Pref, pref, PF_HEAD)
+	TESTCLEARFLAG(Pref, pref, PF_HEAD) // [PHW] for PF
 PAGEFLAG(Workingset, workingset, PF_HEAD)
 	TESTCLEARFLAG(Workingset, workingset, PF_HEAD)
 __PAGEFLAG(Slab, slab, PF_NO_TAIL)

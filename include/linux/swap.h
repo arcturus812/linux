@@ -446,6 +446,10 @@ void check_move_unevictable_pages(struct pagevec *pvec);
 
 extern void kswapd_run(int nid);
 extern void kswapd_stop(int nid);
+// [PHW] added for pf
+// extern void kpf_run(int nid);
+// extern void kpf_stop(int nid);
+
 
 #ifdef CONFIG_SWAP
 

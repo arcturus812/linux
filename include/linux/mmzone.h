@@ -172,8 +172,10 @@ enum node_stat_item {
 	NR_LRU_BASE,
 	NR_INACTIVE_ANON = NR_LRU_BASE, /* must match order of LRU_[IN]ACTIVE */
 	NR_ACTIVE_ANON,		/*  "     "     "   "       "         */
+	// NR_PF_ANON, /* [PHW] */
 	NR_INACTIVE_FILE,	/*  "     "     "   "       "         */
 	NR_ACTIVE_FILE,		/*  "     "     "   "       "         */
+	// NR_PF_FILE, /* [PHW] */
 	NR_UNEVICTABLE,		/*  "     "     "   "       "         */
 	NR_SLAB_RECLAIMABLE_B,
 	NR_SLAB_UNRECLAIMABLE_B,
@@ -273,13 +275,16 @@ static __always_inline bool vmstat_item_in_bytes(int idx)
  */
 #define LRU_BASE 0
 #define LRU_ACTIVE 1
-#define LRU_FILE 2
+#define LRU_PF	2 /* [PHW] for prefetcher friendly lists*/
+#define LRU_FILE 3 
 
 enum lru_list {
 	LRU_INACTIVE_ANON = LRU_BASE,
 	LRU_ACTIVE_ANON = LRU_BASE + LRU_ACTIVE,
+	LRU_PF_ANON = LRU_BASE + LRU_PF,
 	LRU_INACTIVE_FILE = LRU_BASE + LRU_FILE,
 	LRU_ACTIVE_FILE = LRU_BASE + LRU_FILE + LRU_ACTIVE,
+	LRU_PF_FILE = LRU_BASE + LRU_FILE + LRU_PF,
 	LRU_UNEVICTABLE,
 	NR_LRU_LISTS
 };
@@ -294,16 +299,28 @@ enum vmscan_throttle_state {
 
 #define for_each_lru(lru) for (lru = 0; lru < NR_LRU_LISTS; lru++)
 
-#define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_FILE; lru++)
+// [PHW] origin
+// #define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_FILE; lru++)
+// [PHW] expand for pf lru
+#define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_PF_FILE; lru++)
 
 static inline bool is_file_lru(enum lru_list lru)
 {
-	return (lru == LRU_INACTIVE_FILE || lru == LRU_ACTIVE_FILE);
+	// [PHW] origin
+	// return (lru == LRU_INACTIVE_FILE || lru == LRU_ACTIVE_FILE);
+	// [PHW] add pf
+	return (lru == LRU_INACTIVE_FILE || lru == LRU_ACTIVE_FILE || lru == LRU_PF_FILE);
 }
+
 
 static inline bool is_active_lru(enum lru_list lru)
 {
 	return (lru == LRU_ACTIVE_ANON || lru == LRU_ACTIVE_FILE);
+}
+
+// [PHW] for pf_lru check
+static inline bool is_pf_lru(enum lru_list lru){
+	return (lru == LRU_PF_ANON || lru == LRU_PF_FILE);
 }
 
 #define ANON_AND_FILE 2
@@ -955,6 +972,7 @@ typedef struct pglist_data {
 					 * when throttling started. */
 	struct task_struct *kswapd;	/* Protected by
 					   mem_hotplug_begin/done() */
+	// struct task_struct *kpf; // [PHW] add for pf, dismiss this thread. i don't need new thread for that
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
 
