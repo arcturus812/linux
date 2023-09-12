@@ -1142,6 +1142,7 @@ static int unmap_and_move(new_page_t get_new_page,
 {
 	int rc = MIGRATEPAGE_SUCCESS;
 	struct page *newpage = NULL;
+	bool is_pf = test_bit(PG_pref, &page->flags); // [PHW] check pf page
 
 	if (!thp_migration_supported() && PageTransHuge(page))
 		return -ENOSYS;
@@ -1154,11 +1155,11 @@ static int unmap_and_move(new_page_t get_new_page,
 		goto out;
 	}
 
-	newpage = get_new_page(page, private);
+	newpage = get_new_page(page, private); // [PHW] alloc_demote_page, private == nid
 	if (!newpage)
 		return -ENOMEM;
 
-	newpage->private = 0;
+	newpage->private = 0; // [PHW] at this momoment, private doesn't point to remote node. why?
 	rc = __unmap_and_move(page, newpage, force, mode);
 	if (rc == MIGRATEPAGE_SUCCESS)
 		set_page_owner_migrate_reason(newpage, reason);
@@ -1193,6 +1194,36 @@ out:
 			 * We release the page in page_handle_poison.
 			 */
 			put_page(page);
+
+		if (is_pf){
+			struct pglist_data *pgdata;
+			struct zone *zone;
+			struct lruvec *lruvec;
+			struct folio *folio;
+
+			/**
+			 * @brief change lru stage
+			 * 1. bring lruvec and lock
+			 * 2. lock and isolate newpage from current lru
+			 * 3. move newpage to pf_list lru
+			 * 4. unlocking
+			 */
+			pgdata = page_pgdat(newpage); // it should be 1
+			zone = page_zone(newpage);
+			// lruvec = &zone->lruvec;
+			lruvec = &pgdata->__lruvec;
+			folio = page_folio(newpage);
+
+			folio_lock(folio);
+			spin_lock_irq(&lruvec->lru_lock);
+			list_del(&folio->lru);
+
+			lruvec_add_folio_pf(lruvec, folio); // into the pf list
+
+			folio_set_lru(folio);
+			spin_unlock_irq(&lruvec->lru_lock);
+			folio_unlock(folio);
+		}
 	} else {
 		if (rc != -EAGAIN)
 			list_add_tail(&page->lru, ret);

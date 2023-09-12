@@ -109,6 +109,22 @@ void lruvec_add_folio(struct lruvec *lruvec, struct folio *folio)
 		list_add(&folio->lru, &lruvec->lists[lru]);
 }
 
+/** 
+ * pass folio to pf list
+*/
+static __always_inline
+void lruvec_add_folio_pf(struct lruvec *lruvec, struct folio *folio){
+	enum lru_list lru = LRU_BASE;
+	if(folio_is_file_lru(folio)){
+		lru += LRU_PF_FILE;
+	}else{
+		lru += LRU_PF_ANON;
+	}
+	update_lru_size(lruvec, lru, folio_zonenum(folio),
+			folio_nr_pages(folio));
+	list_add(&folio->lru, &lruvec->lists[lru]);
+}
+
 static __always_inline void add_page_to_lru_list(struct page *page,
 				struct lruvec *lruvec)
 {
