@@ -169,6 +169,17 @@ static inline void zone_page_state_add(long x, struct zone *zone,
 	atomic_long_add(x, &vm_zone_stat[item]);
 }
 
+// for test
+static inline void node_page_state_add_pf(long x, struct pglist_data *pgdat,
+				 enum node_stat_item item)
+{
+	printk(KERN_DEBUG "[PHW]pf node_page_state_add, dbg1\n");
+	atomic_long_add(x, &pgdat->vm_stat[item]);
+	printk(KERN_DEBUG "[PHW]pf node_page_state_add, dbg2\n");
+	atomic_long_add(x, &vm_node_stat[item]);
+	printk(KERN_DEBUG "[PHW]pf node_page_state_add, dbg3\n");
+}
+
 static inline void node_page_state_add(long x, struct pglist_data *pgdat,
 				 enum node_stat_item item)
 {
@@ -278,6 +289,8 @@ void __inc_zone_page_state(struct page *, enum zone_stat_item);
 void __dec_zone_page_state(struct page *, enum zone_stat_item);
 
 void __mod_node_page_state(struct pglist_data *, enum node_stat_item item, long);
+//for test
+void __mod_node_page_state_pf(struct pglist_data *, enum node_stat_item item, long);
 void __inc_node_page_state(struct page *, enum node_stat_item);
 void __dec_node_page_state(struct page *, enum node_stat_item);
 
@@ -337,6 +350,30 @@ static inline void __mod_node_page_state(struct pglist_data *pgdat,
 	}
 
 	node_page_state_add(delta, pgdat, item);
+}
+// for test
+static inline void __mod_node_page_state_pf(struct pglist_data *pgdat,
+			enum node_stat_item item, int delta)
+{
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf, dbg0 pgdat:0x%llx\n", pgdat);
+	printk(KERN_DEBUG "[PHW]pf node_page_state vmstat.h, dbg1\n");
+	if (vmstat_item_in_bytes(item)) {
+		printk(KERN_DEBUG "[PHW]pf node_page_state vmstat.h, dbg1-2\n");
+		/*
+		 * Only cgroups use subpage accounting right now; at
+		 * the global level, these items still change in
+		 * multiples of whole pages. Store them as pages
+		 * internally to keep the per-cpu counters compact.
+		 */
+		VM_WARN_ON_ONCE(delta & (PAGE_SIZE - 1));
+		printk(KERN_DEBUG "[PHW]pf node_page_state vmstat.h, dbg1-3\n");
+		delta >>= PAGE_SHIFT;
+		printk(KERN_DEBUG "[PHW]pf node_page_state vmstat.h, dbg1-4\n");
+	}
+	printk(KERN_DEBUG "[PHW]pf node_page_state vmstat.h, dbg2\n");
+
+	node_page_state_add_pf(delta, pgdat, item);
+	printk(KERN_DEBUG "[PHW]pf node_page_state vmstat.h, dbg3\n");
 }
 
 static inline void __inc_zone_state(struct zone *zone, enum zone_stat_item item)
@@ -546,6 +583,10 @@ static inline const char *vm_event_name(enum vm_event_item item)
 void __mod_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 			int val);
 
+//for test
+void __mod_lruvec_state_pf(struct lruvec *lruvec, enum node_stat_item idx,
+			int val);
+
 static inline void mod_lruvec_state(struct lruvec *lruvec,
 				    enum node_stat_item idx, int val)
 {
@@ -570,6 +611,17 @@ static inline void mod_lruvec_page_state(struct page *page,
 }
 
 #else
+//for test
+static inline void __mod_lruvec_state_pf(struct lruvec *lruvec,
+				      enum node_stat_item idx, int val)
+{
+	// struct pglist_data *pgdat = lruvec_pgdat(lruvec);
+	struct pglist_data *pgdat = container_of(lruvec, struct pglist_data, __lruvec);
+	printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf, dbg1 lruvec:0x%p\n", lruvec);
+	printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf, dbg2 pgdat:0x%p\n", pgdat);
+	// __mod_node_page_state_pf(lruvec_pgdat(lruvec), idx, val);
+	__mod_node_page_state_pf(pgdat, idx, val);
+}
 
 static inline void __mod_lruvec_state(struct lruvec *lruvec,
 				      enum node_stat_item idx, int val)

@@ -43,10 +43,37 @@ static __always_inline void update_lru_size(struct lruvec *lruvec,
 	__mod_lruvec_state(lruvec, NR_LRU_BASE + lru, nr_pages);
 	__mod_zone_page_state(&pgdat->node_zones[zid],
 				NR_ZONE_LRU_BASE + lru, nr_pages);
+
 #ifdef CONFIG_MEMCG
 	mem_cgroup_update_lru_size(lruvec, lru, zid, nr_pages);
 #endif
 }
+/** 
+ * [PHW] my own
+*/
+static __always_inline void update_lru_size_pf(struct lruvec *lruvec,
+				enum lru_list lru, enum zone_type zid,
+				long nr_pages)
+{
+	// struct pglist_data *pgdat = lruvec_pgdat(lruvec);
+	struct pglist_data *pgdat = container_of(lruvec, struct pglist_data, __lruvec);
+
+	printk(KERN_DEBUG "[PHW]pf update_lru_size, dbg1\n");
+	// __mod_lruvec_state(lruvec, NR_LRU_BASE + lru, nr_pages);
+	printk(KERN_DEBUG "[PHW]pf update_lru_size, dbg1-1 lruvec:0x%p\n", lruvec);
+	printk(KERN_DEBUG "[PHW]pf update_lru_size, dbg1-2 pgdat:0x%p\n", pgdat);
+	__mod_lruvec_state_pf(lruvec, NR_LRU_BASE + lru, nr_pages);
+	// __mod_node_page_state_pf(lruvec_pgdat(lruvec), NR_LRU_BASE + lru, nr_pages);
+	printk(KERN_DEBUG "[PHW]pf update_lru_size, dbg2\n");
+	__mod_zone_page_state(&pgdat->node_zones[zid],
+				NR_ZONE_LRU_BASE + lru, nr_pages);
+	printk(KERN_DEBUG "[PHW]pf update_lru_size, dbg3\n");
+
+#ifdef CONFIG_MEMCG
+	mem_cgroup_update_lru_size(lruvec, lru, zid, nr_pages);
+#endif
+}
+
 
 /**
  * __folio_clear_lru_flags - Clear page lru flags before releasing a page.
@@ -88,10 +115,9 @@ static __always_inline enum lru_list folio_lru_list(struct folio *folio)
 		return LRU_UNEVICTABLE;
 
 	lru = folio_is_file_lru(folio) ? LRU_INACTIVE_FILE : LRU_INACTIVE_ANON;
-	if (folio_test_active(folio))
+	if (folio_test_active(folio)){
 		lru += LRU_ACTIVE;
-	
-	if (folio_test_pref(folio)){ // [PHW] add pf lists
+	}else if (folio_test_pref(folio)){ // [PHW] add pf lists
 		lru += LRU_PF;
 	}
 
@@ -114,15 +140,28 @@ void lruvec_add_folio(struct lruvec *lruvec, struct folio *folio)
 */
 static __always_inline
 void lruvec_add_folio_pf(struct lruvec *lruvec, struct folio *folio){
-	enum lru_list lru = LRU_BASE;
+	enum lru_list lru = folio_lru_list(folio);
+	// struct pglist_data *pgdat = lruvec_pgdat(lruvec);
+	struct pglist_data *pgdat = container_of(lruvec, struct pglist_data, __lruvec);
+	printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg0, lruvec:%p\n", lruvec);
+	printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg0-1, pgdat:%p\n", pgdat);
+	// printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg0-2, pgdat2:%p by container\n", pgdat2);
+	printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg1, %d\n", lru);
+	// lru = LRU_BASE;
 	if(folio_is_file_lru(folio)){
-		lru += LRU_PF_FILE;
+		lru = LRU_PF_FILE;
 	}else{
-		lru += LRU_PF_ANON;
+		lru = LRU_PF_ANON;
 	}
-	update_lru_size(lruvec, lru, folio_zonenum(folio),
+	printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg1-2, %d\n", lru);
+	// [PHW] could be skip? => doesn't seem
+	// update_lru_size(lruvec, lru, folio_zonenum(folio),
+	// 		folio_nr_pages(folio));
+	update_lru_size_pf(lruvec, lru, folio_zonenum(folio),
 			folio_nr_pages(folio));
+	printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg2\n");
 	list_add(&folio->lru, &lruvec->lists[lru]);
+	printk(KERN_DEBUG "[PHW]lruvec_add_folio_pf, dbg3\n");
 }
 
 static __always_inline void add_page_to_lru_list(struct page *page,

@@ -1200,6 +1200,13 @@ out:
 			struct zone *zone;
 			struct lruvec *lruvec;
 			struct folio *folio;
+			bool is_lru = PageLRU(newpage);
+			enum lru_list lru = folio_lru_list(folio);
+			if (folio_is_file_lru(folio)) {
+				lru = LRU_PF_FILE;
+			} else {
+				lru = LRU_PF_ANON;
+			}
 
 			/**
 			 * @brief change lru stage
@@ -1210,15 +1217,27 @@ out:
 			 */
 			pgdata = page_pgdat(newpage); // it should be 1
 			zone = page_zone(newpage);
-			// lruvec = &zone->lruvec;
-			lruvec = &pgdata->__lruvec;
 			folio = page_folio(newpage);
+			// lruvec = &zone->lruvec;
+			// lruvec = &pgdata->__lruvec;
+			printk(KERN_DEBUG "[PHW]unmap_and_move dbg0-0\n");
+			lruvec = folio_lruvec(folio);
 
-			folio_lock(folio);
+
 			spin_lock_irq(&lruvec->lru_lock);
 			list_del(&folio->lru);
 
-			lruvec_add_folio_pf(lruvec, folio); // into the pf list
+			printk(KERN_DEBUG "[PHW]unmap_and_move dbg0 lruvec:0x%px\n", lruvec);
+			printk(KERN_DEBUG "[PHW]unmap_and_move dbg0-1 pgdat:0x%p\n", pgdata);
+			printk(KERN_DEBUG "[PHW]unmap_and_move dbg0-2 pgdat_nid:%d\n", pgdata->node_id);
+			printk(KERN_DEBUG "[PHW]unmap_and_move dbg0-3 newpageLRU?:%d\n", is_lru);
+			printk(KERN_DEBUG "[PHW]migrate 0x%px to 0x%px before\n", page, newpage);
+			// del_page_from_lru_list(newpage, lruvec);
+			// is_lru = PageLRU(newpage);
+			// printk(KERN_DEBUG "[PHW]unmap_and_move dbg0-4 newpageLRU?:%d\n", is_lru);
+			// lruvec_add_folio_pf(lruvec, folio); // into the pf list
+			list_add(&folio->lru, &lruvec->lists[lru]);
+			printk(KERN_DEBUG "[PHW]migrate 0x%px to 0x%px after\n", page, newpage);
 
 			folio_set_lru(folio);
 			spin_unlock_irq(&lruvec->lru_lock);
@@ -1231,7 +1250,7 @@ out:
 		if (put_new_page)
 			put_new_page(newpage, private);
 		else
-			put_page(newpage);
+			put_page(newpage); // [PHW] need to inspect this mother fucker
 	}
 
 	return rc;

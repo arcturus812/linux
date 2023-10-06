@@ -155,8 +155,10 @@ enum zone_stat_item {
 	NR_ZONE_LRU_BASE, /* Used only for compaction and reclaim retry */
 	NR_ZONE_INACTIVE_ANON = NR_ZONE_LRU_BASE,
 	NR_ZONE_ACTIVE_ANON,
+	NR_ZONE_PF_ANON, /* [PHW] */
 	NR_ZONE_INACTIVE_FILE,
 	NR_ZONE_ACTIVE_FILE,
+	NR_ZONE_PF_FILE, /* [PHW] */
 	NR_ZONE_UNEVICTABLE,
 	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
@@ -172,10 +174,10 @@ enum node_stat_item {
 	NR_LRU_BASE,
 	NR_INACTIVE_ANON = NR_LRU_BASE, /* must match order of LRU_[IN]ACTIVE */
 	NR_ACTIVE_ANON,		/*  "     "     "   "       "         */
-	// NR_PF_ANON, /* [PHW] */
+	NR_PF_ANON, /* [PHW] */
 	NR_INACTIVE_FILE,	/*  "     "     "   "       "         */
 	NR_ACTIVE_FILE,		/*  "     "     "   "       "         */
-	// NR_PF_FILE, /* [PHW] */
+	NR_PF_FILE, /* [PHW] */
 	NR_UNEVICTABLE,		/*  "     "     "   "       "         */
 	NR_SLAB_RECLAIMABLE_B,
 	NR_SLAB_UNRECLAIMABLE_B,
@@ -279,12 +281,12 @@ static __always_inline bool vmstat_item_in_bytes(int idx)
 #define LRU_FILE 3 
 
 enum lru_list {
-	LRU_INACTIVE_ANON = LRU_BASE,
-	LRU_ACTIVE_ANON = LRU_BASE + LRU_ACTIVE,
-	LRU_PF_ANON = LRU_BASE + LRU_PF,
-	LRU_INACTIVE_FILE = LRU_BASE + LRU_FILE,
-	LRU_ACTIVE_FILE = LRU_BASE + LRU_FILE + LRU_ACTIVE,
-	LRU_PF_FILE = LRU_BASE + LRU_FILE + LRU_PF,
+	LRU_INACTIVE_ANON = LRU_BASE, // 0
+	LRU_ACTIVE_ANON = LRU_BASE + LRU_ACTIVE, // 0 + 1
+	LRU_PF_ANON = LRU_BASE + LRU_PF, // 0 + 2
+	LRU_INACTIVE_FILE = LRU_BASE + LRU_FILE, // 0 + 3
+	LRU_ACTIVE_FILE = LRU_BASE + LRU_FILE + LRU_ACTIVE, //0 + 3 + 1
+	LRU_PF_FILE = LRU_BASE + LRU_FILE + LRU_PF, // 0 + 3 + 2
 	LRU_UNEVICTABLE,
 	NR_LRU_LISTS
 };
@@ -300,9 +302,9 @@ enum vmscan_throttle_state {
 #define for_each_lru(lru) for (lru = 0; lru < NR_LRU_LISTS; lru++)
 
 // [PHW] origin
-// #define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_FILE; lru++)
+#define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_FILE; lru++) /* [PHW] i don't want to evict page from pf_list while shrinking */
 // [PHW] expand for pf lru
-#define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_PF_FILE; lru++)
+// #define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_PF_FILE; lru++)
 
 static inline bool is_file_lru(enum lru_list lru)
 {

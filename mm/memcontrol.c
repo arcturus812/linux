@@ -699,6 +699,57 @@ static unsigned long memcg_page_state_local(struct mem_cgroup *memcg, int idx)
 	return x;
 }
 
+//for test
+void __mod_memcg_lruvec_state_pf(struct lruvec *lruvec, enum node_stat_item idx,
+			      int val)
+{
+	struct mem_cgroup_per_node *pn;
+	struct mem_cgroup *memcg;
+
+	pn = container_of(lruvec, struct mem_cgroup_per_node, lruvec);
+	memcg = pn->memcg;
+
+	/*
+	 * The caller from rmap relay on disabled preemption becase they never
+	 * update their counter from in-interrupt context. For these two
+	 * counters we check that the update is never performed from an
+	 * interrupt context while other caller need to have disabled interrupt.
+	 */
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg0 idx:%d\n", idx);
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg0-1 val:%d\n", val);
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg0-2 lruvec:%p\n", lruvec);
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg1\n");
+	__memcg_stats_lock();
+	if (IS_ENABLED(CONFIG_DEBUG_VM) && !IS_ENABLED(CONFIG_PREEMPT_RT)) {
+		switch (idx) {
+		case NR_ANON_MAPPED:
+		case NR_FILE_MAPPED:
+		case NR_ANON_THPS:
+		case NR_SHMEM_PMDMAPPED:
+		case NR_FILE_PMDMAPPED:
+			WARN_ON_ONCE(!in_task());
+			break;
+		default:
+			WARN_ON_ONCE(!irqs_disabled());
+		}
+	}
+
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg2\n");
+	/* Update memcg */
+	__this_cpu_add(memcg->vmstats_percpu->state[idx], val);
+
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg3\n");
+	/* Update lruvec */
+	__this_cpu_add(pn->lruvec_stats_percpu->state[idx], val);
+
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg4\n");
+	memcg_rstat_updated(memcg, val);
+	memcg_stats_unlock();
+	printk(KERN_DEBUG "[PHW]pf mod_memcg_lruvec_state_pf_memcontrol.c, dbg5\n");
+}
+
+
+
 void __mod_memcg_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 			      int val)
 {
@@ -749,6 +800,28 @@ void __mod_memcg_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
  * function updates the all three counters that are affected by a
  * change of state at this level: per-node, per-cgroup, per-lruvec.
  */
+//for test
+void __mod_lruvec_state_pf(struct lruvec *lruvec, enum node_stat_item idx,
+			int val)
+{
+	/* Update node */
+	// struct pglist_data *pgdat = lruvec_pgdat(lruvec);
+	struct pglist_data *pgdat = container_of(lruvec, struct pglist_data, __lruvec);
+	printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf_memcontrol.c, dbg0 lruvec:0x%p\n", lruvec);
+	printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf_memcontrol.c, dbg0-1 pgdat:0x%p\n", pgdat);
+	printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf_memcontrol.c, dbg1\n");
+	// __mod_node_page_state(lruvec_pgdat(lruvec), idx, val);
+	// __mod_node_page_state_pf(lruvec_pgdat(lruvec), idx, val);
+	__mod_node_page_state_pf(pgdat, idx, val);
+	printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf_memcontrol.c, dbg2\n");
+
+	/* Update memcg and lruvec */
+	if (!mem_cgroup_disabled()){
+		printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf_memcontrol.c, dbg3\n");
+		__mod_memcg_lruvec_state(lruvec, idx, val);
+		printk(KERN_DEBUG "[PHW]pf mod_lruvec_state_pf_memcontrol.c, dbg4\n");
+	}
+}
 void __mod_lruvec_state(struct lruvec *lruvec, enum node_stat_item idx,
 			int val)
 {
@@ -1422,8 +1495,10 @@ static const struct memory_stat memory_stats[] = {
 #endif
 	{ "inactive_anon",		NR_INACTIVE_ANON		},
 	{ "active_anon",		NR_ACTIVE_ANON			},
+	{ "pf_anon",			NR_PF_ANON			},
 	{ "inactive_file",		NR_INACTIVE_FILE		},
 	{ "active_file",		NR_ACTIVE_FILE			},
+	{ "pf_file",			NR_PF_FILE			},
 	{ "unevictable",		NR_UNEVICTABLE			},
 	{ "slab_reclaimable",		NR_SLAB_RECLAIMABLE_B		},
 	{ "slab_unreclaimable",		NR_SLAB_UNRECLAIMABLE_B		},
@@ -3877,8 +3952,8 @@ static int mem_cgroup_move_charge_write(struct cgroup_subsys_state *css,
 
 #ifdef CONFIG_NUMA
 
-#define LRU_ALL_FILE (BIT(LRU_INACTIVE_FILE) | BIT(LRU_ACTIVE_FILE))
-#define LRU_ALL_ANON (BIT(LRU_INACTIVE_ANON) | BIT(LRU_ACTIVE_ANON))
+#define LRU_ALL_FILE (BIT(LRU_INACTIVE_FILE) | BIT(LRU_ACTIVE_FILE) | BIT(LRU_PF_FILE))
+#define LRU_ALL_ANON (BIT(LRU_INACTIVE_ANON) | BIT(LRU_ACTIVE_ANON) | BIT(LRU_PF_ANON))
 #define LRU_ALL	     ((1 << NR_LRU_LISTS) - 1)
 
 static unsigned long mem_cgroup_node_nr_lru_pages(struct mem_cgroup *memcg,

@@ -373,6 +373,58 @@ void __mod_zone_page_state(struct zone *zone, enum zone_stat_item item,
 }
 EXPORT_SYMBOL(__mod_zone_page_state);
 
+//for test
+void __mod_node_page_state_pf(struct pglist_data *pgdat, enum node_stat_item item,
+				long delta)
+{
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf, dbg0 pgdat:0x%px\n", pgdat);
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg1, item:%d\n", item);
+	struct per_cpu_nodestat __percpu *pcp = pgdat->per_cpu_nodestats;
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg1-2\n");
+	s8 __percpu *p = pcp->vm_node_stat_diff + item;
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg1-3\n");
+	long x;
+	long t;
+
+	if (vmstat_item_in_bytes(item)) {
+		printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg1-4\n");
+		/*
+		 * Only cgroups use subpage accounting right now; at
+		 * the global level, these items still change in
+		 * multiples of whole pages. Store them as pages
+		 * internally to keep the per-cpu counters compact.
+		 */
+		VM_WARN_ON_ONCE(delta & (PAGE_SIZE - 1));
+		printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg1-5\n");
+		delta >>= PAGE_SHIFT;
+	}
+
+	/* See __mod_node_page_state */
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg2\n");
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		preempt_disable();
+
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg3\n");
+	x = delta + __this_cpu_read(*p);
+
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg4\n");
+	t = __this_cpu_read(pcp->stat_threshold);
+
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg5\n");
+	if (unlikely(abs(x) > t)) {
+		node_page_state_add(x, pgdat, item);
+		x = 0;
+	}
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg6\n");
+	__this_cpu_write(*p, x);
+
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg7\n");
+	if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		preempt_enable();
+	printk(KERN_DEBUG "[PHW]pf mod_node_page_state_pf_vmstat.c, dbg8\n");
+}
+EXPORT_SYMBOL(__mod_node_page_state_pf);
+
 void __mod_node_page_state(struct pglist_data *pgdat, enum node_stat_item item,
 				long delta)
 {
@@ -1183,8 +1235,10 @@ const char * const vmstat_text[] = {
 	"nr_free_pages",
 	"nr_zone_inactive_anon",
 	"nr_zone_active_anon",
+	"nr_zone_pf_anon", //[PHW]
 	"nr_zone_inactive_file",
 	"nr_zone_active_file",
+	"nr_zone_pf_file", //[PHW]
 	"nr_zone_unevictable",
 	"nr_zone_write_pending",
 	"nr_mlock",
@@ -1207,8 +1261,10 @@ const char * const vmstat_text[] = {
 	/* enum node_stat_item counters */
 	"nr_inactive_anon",
 	"nr_active_anon",
+	"nr_pf_anon", // [PHW]
 	"nr_inactive_file",
 	"nr_active_file",
+	"nr_pf_file", // [PHW]
 	"nr_unevictable",
 	"nr_slab_reclaimable",
 	"nr_slab_unreclaimable",

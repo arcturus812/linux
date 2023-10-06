@@ -100,7 +100,7 @@ static void __page_cache_release(struct folio *folio)
 
 static void __folio_put_small(struct folio *folio)
 {
-	__page_cache_release(folio);
+	__page_cache_release(folio); // [PHW] inspect this shit
 	mem_cgroup_uncharge(folio);
 	free_unref_page(&folio->page, 0);
 }
