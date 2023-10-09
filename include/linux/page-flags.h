@@ -198,8 +198,8 @@ enum pageflags {
 	/* For self-hosted memmap pages */
 	PG_vmemmap_self_hosted = PG_owner_priv_1,
 #endif
-    /* [PHW] add 1bit for pf page */
-    PG_prefetcher_friendly,
+    /* [PHW] add 1bit for pf page, make it short */
+    PG_pref,
 };
 
 #define PAGEFLAGS_MASK		((1UL << NR_PAGEFLAGS) - 1)
@@ -484,8 +484,10 @@ PAGEFLAG(LRU, lru, PF_HEAD) __CLEARPAGEFLAG(LRU, lru, PF_HEAD)
 	TESTCLEARFLAG(LRU, lru, PF_HEAD)
 PAGEFLAG(Active, active, PF_HEAD) __CLEARPAGEFLAG(Active, active, PF_HEAD)
 	TESTCLEARFLAG(Active, active, PF_HEAD)
-PAGEFLAG(Prefetcher_friendly, prefetcher_friendly, PF_HEAD) __CLEARPAGEFLAG(prefetcher_friendly, prefetcher_friendly, PF_HEAD)
-	TESTCLEARFLAG(Prefetcher_friendly, prefetcher_friendly, PF_HEAD)
+// PAGEFLAG(Prefetcher_friendly, prefetcher_friendly, PF_HEAD) __CLEARPAGEFLAG(prefetcher_friendly, prefetcher_friendly, PF_HEAD)
+// 	TESTCLEARFLAG(Prefetcher_friendly, prefetcher_friendly, PF_HEAD)
+PAGEFLAG(Pref, pref, PF_HEAD) __CLEARPAGEFLAG(Pref, pref, PF_HEAD)
+	TESTCLEARFLAG(Pref, pref, PF_HEAD)
 PAGEFLAG(Workingset, workingset, PF_HEAD)
 	TESTCLEARFLAG(Workingset, workingset, PF_HEAD)
 __PAGEFLAG(Slab, slab, PF_NO_TAIL)
@@ -1057,6 +1059,11 @@ static __always_inline void __ClearPageAnonExclusive(struct page *page)
  * Flags checked when a page is freed.  Pages being freed should not have
  * these flags set.  If they are, there is a problem.
  */
+/**
+ * [PHW] PG_pref can be free.
+ * but multiclock add PG_promote to under definition
+ * why..?
+*/
 #define PAGE_FLAGS_CHECK_AT_FREE				\
 	(1UL << PG_lru		| 1UL << PG_locked	|	\
 	 1UL << PG_private	| 1UL << PG_private_2	|	\

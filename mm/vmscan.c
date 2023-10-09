@@ -1799,7 +1799,9 @@ retry:
 				sequentialness++;
 				// check candidate by seq_thd
 				if(sequentialness > seq_thd){ // current page is already part of pf_page chunk, just pass to demote_pages
+					struct page *tmp_page = &folio->page;
 					printk(KERN_DEBUG "[PHW]continue_demote cur_pfn:0x%lx\tseqness:%d\tnr_can:%d\n", cur_pfn, sequentialness, nr_candidate);
+					set_bit(PG_pref, &tmp_page->flags);
 					list_add(&folio->lru, &demote_pages);
 					folio_unlock(folio);
 					continue;
@@ -1816,8 +1818,10 @@ retry:
 						// list_add(&folio->lru, &candidate_pages);
 						while (!list_empty(&candidate_pages)) { // "&" for treat local(function) list
 							struct folio *folio_candidate = lru_to_folio(&candidate_pages);
+							struct page *tmp_page = &folio_candidate->page;
 							printk(KERN_DEBUG "[PHW]demote pfn:0x%lx\tseqness:%d\tnr_can:%d\n", folio_pfn(folio_candidate), sequentialness, nr_candidate);
 							list_del(&folio_candidate->lru);
+							set_bit(PG_pref, &tmp_page->flags);
 							list_add(&folio_candidate->lru, &demote_pages);
 							folio_unlock(folio_candidate); // all candidate are locked at start-code of main-while
 							nr_candidate--;
@@ -3037,6 +3041,9 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	denominator = ap + fp;
 out:
 	for_each_evictable_lru(lru) {
+		if(lru == LRU_PF_FILE || lru == LRU_PF_ANON) // [PHW] hmmmmmmmm............
+			continue;
+
 		int file = is_file_lru(lru);
 		unsigned long lruvec_size;
 		unsigned long low, min;
@@ -3196,6 +3203,8 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 		unsigned long nr_scanned;
 
 		for_each_evictable_lru(lru) {
+			if( lru == LRU_PF_ANON || lru == LRU_PF_FILE) // [PHW] i don't want to shrink PF list at this moment
+				continue;
 			if (nr[lru]) {
 				nr_to_scan = min(nr[lru], SWAP_CLUSTER_MAX);
 				nr[lru] -= nr_to_scan;
