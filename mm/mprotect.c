@@ -158,6 +158,15 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 				if (!(sysctl_numa_balancing_mode & NUMA_BALANCING_NORMAL) &&
 				    node_is_toptier(nid))
 					continue;
+
+
+				/**
+				 * [PHW] Skip pf_page
+				 */
+				if(PagePref(page)){
+					printk(KERN_DEBUG "[PHW]numa-hint-fault-setup skipped for 0x%lx\n", page_to_pfn(page));
+					continue;
+				}
 			}
 
 			oldpte = ptep_modify_prot_start(vma, addr, pte);

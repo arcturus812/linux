@@ -594,6 +594,10 @@ void folio_migrate_flags(struct folio *newfolio, struct folio *folio)
 
 	if (!folio_test_hugetlb(folio))
 		mem_cgroup_migrate(folio, newfolio);
+
+	/* [PHW] migrate page with custom flag. definition in page-flags.h */
+	if(folio_test_clear_pref(folio))
+		folio_set_pref(newfolio);
 }
 EXPORT_SYMBOL(folio_migrate_flags);
 
@@ -1101,7 +1105,7 @@ static int __unmap_and_move(struct page *page, struct page *newpage,
 	 * isolated from the unevictable LRU: but this case is the easiest.
 	 */
 	if (rc == MIGRATEPAGE_SUCCESS) {
-		lru_cache_add(newpage);
+		lru_cache_add(newpage); // [PHW] newpage to LRU list
 		if (page_was_mapped)
 			lru_add_drain();
 	}
@@ -1145,7 +1149,7 @@ static int unmap_and_move(new_page_t get_new_page,
 
 	bool is_pf = test_bit(PG_pref, &page->flags); // [PHW] check pf page
 	if(is_pf)
-		printk(KERN_DEBUG "[PHW]unmap_and_move target_pf:0x%lx\n", page_to_pfn(page));
+		printk(KERN_DEBUG "[PHW]demote_by_pf:0x%lx\n", page_to_pfn(page));
 
 	if (!thp_migration_supported() && PageTransHuge(page))
 		return -ENOSYS;
@@ -1576,6 +1580,13 @@ out:
 	return rc;
 }
 
+/**
+ * @brief 
+ * 
+ * @param page src page
+ * @param private mtc(32bit?)
+ * @return struct page* newpage
+ */
 struct page *alloc_migration_target(struct page *page, unsigned long private)
 {
 	struct folio *folio = page_folio(page);
