@@ -1147,9 +1147,9 @@ static int unmap_and_move(new_page_t get_new_page,
 	int rc = MIGRATEPAGE_SUCCESS;
 	struct page *newpage = NULL;
 
-	bool is_pf = test_bit(PG_pref, &page->flags); // [PHW] check pf page
-	if(is_pf)
-		printk(KERN_DEBUG "[PHW]demote_by_pf:0x%lx\n", page_to_pfn(page));
+	// bool is_pf = test_bit(PG_pref, &page->flags); // [PHW] check pf page
+	// if(is_pf)
+	// 	printk(KERN_DEBUG "[PHW]demote_by_pf:0x%lx\n", page_to_pfn(page));
 
 	if (!thp_migration_supported() && PageTransHuge(page))
 		return -ENOSYS;

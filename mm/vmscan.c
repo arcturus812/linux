@@ -67,6 +67,8 @@
 struct pref_friendly_page *pref_friendly_page_head;
 EXPORT_SYMBOL(pref_friendly_page_head);
 
+// extern int seq_thd;
+
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
 	unsigned long nr_to_reclaim;
@@ -1612,7 +1614,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 	 * @brief [PHW]
 	 * new vriables for identify sequential accessed pages
 	 */
-	int seq_thd 				= 4;
+	int seq_thd 				= 8; // defined in mm.h
 	int sequentialness			= 0;
 	int nr_candidate 			= 0;
 	long unsigned int prev_pfn 	= 0x0;
@@ -2245,7 +2247,7 @@ keep:
 
 	/* Migrate folios selected for demotion */
 	nr_reclaimed += demote_page_list(&demote_pages, pgdat);
-	printk(KERN_DEBUG "[PHW]demoted_pf:%u\tnr_reclaimed:%u\n", demoted_pf, nr_reclaimed);
+	// printk(KERN_DEBUG "[PHW]demoted_pf:%u\tnr_reclaimed:%u\n", demoted_pf, nr_reclaimed);
 	/* Folios that could not be demoted are still in @demote_pages */
 	if (!list_empty(&demote_pages)) {
 		/* Folios which weren't demoted go back on @page_list for retry: */
@@ -2632,7 +2634,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum vm_event_item item;
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	bool stalled = false;
-	printk(KERN_DEBUG "shrink_inactive_list start, lru:%d\n", lru);
+	// printk(KERN_DEBUG "shrink_inactive_list start, lru:%d\n", lru);
 
 	while (unlikely(too_many_isolated(pgdat, file, sc))) {
 		if (stalled)
@@ -2973,11 +2975,11 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 
 	/* If we have no swap space, do not bother scanning anon pages. */
 	/* [PHW] i need to turn off swap(swapoff -a) 
-	 * this code should be ignored */
-	// if (!sc->may_swap || !can_reclaim_anon_pages(memcg, pgdat->node_id, sc)) {
-	// 	scan_balance = SCAN_FILE;
-	// 	goto out;
-	// }
+	 * this code should be ignore? */
+	if (!sc->may_swap || !can_reclaim_anon_pages(memcg, pgdat->node_id, sc)) {
+		scan_balance = SCAN_FILE;
+		goto out;
+	}
 
 	/*
 	 * Global reclaim will swap to prevent OOM even with no

@@ -83,6 +83,14 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 	bool uffd_wp = cp_flags & MM_CP_UFFD_WP;
 	bool uffd_wp_resolve = cp_flags & MM_CP_UFFD_WP_RESOLVE;
 
+	// [PHW] for finding pf
+	int seq_thd = 8;
+	pte_t *pte_back;
+	struct page *pf_pages[seq_thd];
+	unsigned long addr_tmp;
+	unsigned long prev_pfn = 0x0;
+	int sequentialness = 0;
+
 	tlb_change_page_size(tlb, PAGE_SIZE);
 
 	/*
@@ -102,12 +110,87 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 	pte = pte_offset_map_lock(vma->vm_mm, pmd, addr, &ptl);
 
 	/* Get target node for single threaded private VMAs */
-	if (prot_numa && !(vma->vm_flags & VM_SHARED) &&
+	/* [PHW] prot_numa indicate this function called by NUMA balancing mechanism*/
+	if (prot_numa && !(vma->vm_flags & VM_SHARED) && 
 	    atomic_read(&vma->vm_mm->mm_users) == 1)
-		target_node = numa_node_id();
+		target_node = numa_node_id(); // [PHW] migration dst
 
 	flush_tlb_batched_pending(vma->vm_mm);
 	arch_enter_lazy_mmu_mode();
+
+	pte_back = pte;
+	addr_tmp = addr;
+	do {
+		bool flag_dismiss = false;
+		oldpte = *pte;
+		if(pte_present(oldpte) && prot_numa){
+			struct page *page;
+			int nid;
+			unsigned long cur_pfn = 0x0;
+			bool is_seq = false;
+
+			/* Avoid TLB flush if possible */
+			if (pte_protnone(oldpte))
+				continue;
+
+			page = vm_normal_page(vma, addr_tmp, oldpte);
+			if (!page || is_zone_device_page(page) || PageKsm(page))
+				continue;
+
+			nid = page_to_nid(page);
+			if(pte_young(*pte) && nid == 1){ // [PHW] reference check by pte 
+				// printk("[PHW]addr_tmp:0x%lx\tnid:%d\tseq:%d\n", addr_tmp, nid, sequentialness);
+			// if(pte_young(*pte)) // [PHW] reference check by pte 
+				cur_pfn = page_to_pfn(page);
+				// printk("[PHW]addr:0x%lx\tpte:0x%px\tnid:%d\n", addr_tmp, pte, nid);
+				if(((cur_pfn > prev_pfn) ? (cur_pfn - prev_pfn) : (prev_pfn - cur_pfn)) == 1){
+					// printk("[PHW]prev:0x%lx\tcur:0x%lx\n", prev_pfn, cur_pfn);
+					is_seq = true;
+				}
+				if(sequentialness == 0){ //first contact
+					pf_pages[sequentialness] = page; 
+					sequentialness++;
+					prev_pfn = cur_pfn;
+					continue;
+				}
+				if(is_seq){
+					if(sequentialness < seq_thd){
+						pf_pages[sequentialness] = page; 
+					}
+					sequentialness++;
+					if(sequentialness == seq_thd){
+						for(int i = 0;i<sequentialness;i++){
+							// printk("[PHW]pf_page:0x%lx\tseq:%d\n", page_to_pfn(pf_pages[i]), sequentialness);
+							//bit setup
+							set_bit(PG_pref, &pf_pages[i]->flags);
+							pf_pages[i] = NULL;
+						}
+					}else if(sequentialness > seq_thd){
+						// printk("[PHW]pf_page:0x%lx\tseq:%d\n", page_to_pfn(page), sequentialness);
+						//bit setup
+						set_bit(PG_pref, &page->flags);
+					}
+				}else{
+					flag_dismiss = true;
+					sequentialness = 0;
+				}
+				prev_pfn = cur_pfn;
+			}else{
+				flag_dismiss = true;
+				sequentialness = 0;
+			}
+
+		}
+		if(flag_dismiss){ //dismiss candidate
+			for(int i=0;i<seq_thd;i++){
+				pf_pages[i] = NULL;
+			}
+			flag_dismiss = false;
+		}
+	} while (pte++, addr_tmp += PAGE_SIZE, addr_tmp != end);
+
+	pte = pte_back; // restore
+
 	do {
 		oldpte = *pte;
 		if (pte_present(oldpte)) {
@@ -164,7 +247,7 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 				 * [PHW] Skip pf_page
 				 */
 				if(PagePref(page)){
-					printk(KERN_DEBUG "[PHW]numa-hint-fault-setup skipped for 0x%lx\n", page_to_pfn(page));
+					// printk(KERN_DEBUG "[PHW]numa-hint-fault-setup skipped for 0x%lx\n", page_to_pfn(page));
 					continue;
 				}
 			}

@@ -2,8 +2,8 @@
 VERSION = 6
 PATCHLEVEL = 0
 SUBLEVEL = 0
-EXTRAVERSION =
-NAME = Hurr durr I'ma ninja sloth
+EXTRAVERSION = -pftma
+NAME = HWP
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
