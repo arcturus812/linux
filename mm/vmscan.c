@@ -67,6 +67,8 @@
 struct pref_friendly_page *pref_friendly_page_head;
 EXPORT_SYMBOL(pref_friendly_page_head);
 
+// extern int seq_thd;
+
 struct scan_control {
 	/* How many pages shrink_list() should reclaim */
 	unsigned long nr_to_reclaim;
@@ -1559,9 +1561,11 @@ static unsigned int demote_page_list(struct list_head *demote_pages,
 		return 0;
 
 	/* Demotion ignores all cpuset and mempolicy settings */
+	// printk(KERN_DEBUG "[PHW]before migrate_pages in demote_page_list nr_succeded:%d\n", nr_succeeded);
 	migrate_pages(demote_pages, alloc_demote_page, NULL,
 			    target_nid, MIGRATE_ASYNC, MR_DEMOTION,
 			    &nr_succeeded);
+	// printk(KERN_DEBUG "[PHW]after migrate_pages in demote_page_list nr_succeded:%d\n", nr_succeeded);
 
 	if (current_is_kswapd())
 		__count_vm_events(PGDEMOTE_KSWAPD, nr_succeeded);
@@ -1602,6 +1606,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 	LIST_HEAD(demote_pages);
 	unsigned int nr_reclaimed = 0;
 	unsigned int pgactivate = 0;
+	unsigned int demoted_pf = 0;
 	bool do_demote_pass;
 	struct swap_iocb *plug = NULL;
 	/**
@@ -1616,13 +1621,28 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 	bool ref_checked = false;
 	LIST_HEAD(candidate_pages);
 
+	/**
+	 * @brief [PHW]
+	 * new vriables for identify sequential accessed pages
+	 */
+	int seq_thd 				= 8; // defined in mm.h
+	int sequentialness			= 0;
+	int nr_candidate 			= 0;
+	long unsigned int prev_pfn 	= 0x0;
+	// bool flag_ref_check			= false;
+	bool flag_dismiss			= false;
+	u64 bit_ref					= 0;
+	// TODO record reference result for candiate pages
+	LIST_HEAD(candidate_pages); // [PHW] candidate list of pf demotion
+
+
 	memset(stat, 0, sizeof(*stat));
 	cond_resched();
 	do_demote_pass = can_demote(pgdat->node_id, sc);
 
 
 retry:
-	while (!list_empty(page_list)) {
+	while (!list_empty(page_list)) { // [PHW] main-while
 		struct address_space *mapping;
 		struct folio *folio;
 		enum page_references references = PAGEREF_RECLAIM;
@@ -1630,33 +1650,22 @@ retry:
 		unsigned int nr_pages;
 
 		/**
-		 * @brief new variable for treat sequential access pattern
-		 * 
+		 * @brief [PHW]
+		 * new vriables for identify sequential accessed pages
 		 */
-		unsigned int cur_pfn = 0;
-		struct page *page = NULL;
-		bool is_seq = false;
+		long unsigned int cur_pfn 	= 0x0;
+		bool is_seq 			= false;
+
+		flag_dismiss			= false;
+		// flag_ref_check 			= false;  // [PHW] init refcheck flag
+
 
 		cond_resched();
 
 		folio = lru_to_folio(page_list);
-		list_del(&folio->lru); // [PHW] seperate from page_list(already isolated from LRU)
-		ref_checked = false;
-
-		// [PHW] get pfn from folio
-		page = &folio->page;
-		cur_pfn = page_to_pfn(page);
-		if(cur_pfn > prev_pfn){
-			if((cur_pfn - prev_pfn) == 1)
-				is_seq = true;
-		}else{
-			if((prev_pfn - cur_pfn) == 1)
-				is_seq = true;
-		}
-		printk(KERN_DEBUG "[PHW]main-while prev:0x%lx\tcur:0x%lx\n", prev_pfn, cur_pfn);
-		// prev_pfn = cur_pfn;
-
-		
+		cur_pfn = folio_pfn(folio);
+		list_del(&folio->lru); // [PHW] seperate page from isolated_page_list
+		// printk(KERN_DEBUG "[PHW]main-while callBI:%d, start cur_pfn:0x%lx\tprev_pfn:0x%lx\tseqness:%d\tnr_can:%d\tfile?:%d\n", call_by_inactive, cur_pfn, prev_pfn, sequentialness, nr_candidate, folio_is_file_lru(folio));
 
 		if (!folio_trylock(folio)) // [PHW] target folio is locked
 			goto keep;
@@ -1783,127 +1792,120 @@ retry:
 		if (!ignore_references)
 			references = folio_check_references(folio, sc);
 
+		// flag_ref_check = true; // [PHW] reference check done
+
 		/**
-		 * @brief Construct a new switch object
-		 * 
+		 * @brief find pf pages!
 		 */
-		if(references == PAGEREF_ACTIVATE || references == PAGEREF_KEEP){
-			printk(KERN_DEBUG "[PHW]shrink_page_list page referenced\n");
-			if(sequentialness == 0){ // first referenced page, insert into candidate_pages
-				printk(KERN_DEBUG "[PHW]sequentialness is 0\n");
-				if(!list_empty(&candidate_pages)){
-					printk(KERN_DEBUG "[PHW]but, candidate exist\n");
-				}
+		if((references == PAGEREF_ACTIVATE || references == PAGEREF_KEEP) && call_by_inactive){ // [PHW] count only referenced page
+			if(((cur_pfn > prev_pfn) ? (cur_pfn - prev_pfn) : (prev_pfn - cur_pfn)) == 1)
+				is_seq = true;
+			prev_pfn = cur_pfn; // update prev_pfn for next round
+
+			if(nr_candidate <= 0 && sequentialness <= 0){ // first contact
+				bit_ref = (references == PAGEREF_ACTIVATE) ? (bit_ref & ~(1ULL << sequentialness)) : (bit_ref | (1ULL << sequentialness));
 				list_add(&folio->lru, &candidate_pages);
-				// list_move(&folio->lru, &candidate_pages);
-				folio_unlock(folio);
-				if(references == PAGEREF_ACTIVATE){
-					bit_ref &= ~(1ULL << (sequentialness)); // setup bit as 0 (PAGEREF_ACTIVATE)
-				}else{
-					bit_ref |= (1ULL << (sequentialness)); // setup bit as 1 (PAGEREF_KEEP)
-				}
-				sequentialness++;
 				nr_candidate++;
-				prev_pfn = cur_pfn;
+				sequentialness++; // [PHW] nr_candidate and sequentialness has same value until pf find
 				continue;
 			}
-			if(is_seq){ // [PHW] at this moment, candidate_page contain at least 1 page
+
+			if(is_seq){
 				sequentialness++;
-				// [PHW] 1. check sequentialness
-				if(sequentialness >= sequentialness_thd){ // [PHW] current page and page that in the candidate_pages is pf
-					printk(KERN_DEBUG "[PHW]sequentialness threshold touched, seq=%d\n", sequentialness);
-					//[PHW] 2. pass candidate page into demote_pages
-					while(!list_empty(&candidate_pages) && nr_candidate > 0){
-						struct folio *pf_folio;
-						struct page *tmp_page;
-						unsigned int tmp_pfn;
-						pf_folio = lru_to_folio(&candidate_pages);
-						tmp_page = &pf_folio->page;
-						tmp_pfn = page_to_pfn(tmp_page);
-						folio_lock(pf_folio);
-						list_del(&pf_folio->lru);
-						list_add(&pf_folio->lru, &demote_pages);
-						// list_move(&pf_folio->lru, &demote_pages);
-						set_bit(PG_pref, &tmp_page->flags); // [PHW] modify page flag for mark the pf
-						folio_unlock(pf_folio);
-						// trace_printk("[PHW]demote at 0x%lx, seq:%d\n", tmp_page, sequentialness);
-						printk(KERN_DEBUG "[PHW]demote at 0x%lx, seq:%d, nr_c:%d\n", tmp_pfn, sequentialness, nr_candidate);
-						nr_candidate--;
-					}
-                    list_add(&folio->lru, &demote_pages);
-                    // list_move(&folio->lru, &demote_pages);
-					set_bit(PG_pref, &page->flags);
-					// trace_printk("[PHW]demote at 0x%lx, seq:%d\n", cur_pfn, sequentialness);
-					printk(KERN_DEBUG "[PHW]demote at 0x%lx, seq:%d, while out, nr_c:%d\n", cur_pfn, sequentialness, nr_candidate);
-                    folio_unlock(folio);
-					continue; // [PHW] to next folio
-                }else{
-                    //[PHW] 3. pass page to candidate_pages
-                    list_add(&folio->lru, &candidate_pages);
+				// check candidate by seq_thd
+				if(sequentialness > seq_thd){ // current page is already part of pf_page chunk, just pass to demote_pages
+					struct page *tmp_page = &folio->page;
+					// printk(KERN_DEBUG "[PHW]continue_demote cur_pfn:0x%lx\tseqness:%d\tnr_can:%d\tfile?:%d\n", cur_pfn, sequentialness, nr_candidate, folio_is_file_lru(folio));
+					set_bit(PG_pref, &tmp_page->flags);
+					list_add(&folio->lru, &demote_pages);
+					folio_unlock(folio);
+					demoted_pf++;
+					continue;
+				}else{ // not enough candidate page
+					// 1. add current page to candidate
+					// printk(KERN_DEBUG "[PHW]not_enough_candidate pfn:0x%lx\tseqness:%d\tnr_can:%d\n", cur_pfn, sequentialness, nr_candidate);
+					bit_ref = (references == PAGEREF_ACTIVATE) ? (bit_ref & ~(1ULL << sequentialness)) : (bit_ref | (1ULL << sequentialness));
+					list_add(&folio->lru, &candidate_pages);
 					nr_candidate++;
-					prev_pfn = cur_pfn;
-                    // list_move(&folio->lru, &candidate_pages);
-                    folio_unlock(folio);
-                    if(references == PAGEREF_ACTIVATE){
-                        bit_ref &= ~(1ULL << (sequentialness)); // setup bit as 0 (PAGEREF_ACTIVATE)
-                    }else{
-                        bit_ref |= (1ULL << (sequentialness)); // setup bit as 1 (PAGEREF_KEEP)
-                    }
-                }
-			}else{ // [PHW] dismiss candiate_page
-				printk(KERN_DEBUG "[PHW]dismiss candidates start\n");
-                while(!list_empty(&candidate_pages)){
-                    struct folio *not_pf_folio;
-					struct page *not_pf_tmp_page;
-					unsigned int not_pf_nr_pages;
-
-					if(nr_candidate == 0){
-						printk(KERN_DEBUG "[PHW]dismiss out\n");
-						break;
-					}
-
-                    not_pf_folio = lru_to_folio(&candidate_pages);
-					not_pf_nr_pages = folio_nr_pages(not_pf_folio);
-					not_pf_tmp_page = &not_pf_folio->page;
-					if(!not_pf_folio) // can this code block the infinite loop pb?
-						break;
-					folio_lock(not_pf_folio);
-					list_del(&not_pf_folio->lru); // [PHW] ssibal 
-					printk(KERN_DEBUG "[PHW]%d:dismiss candidate, 0x%lx\tseq:%d\n", current->pid, page_to_pfn(not_pf_tmp_page), sequentialness);
-                    // [PHW] check bit_ref's bit for previous goto phrase
-//activate_locked:
-					if((bit_ref & (1ULL << (sequentialness - 1)) == 0)){ // [PHW] 0 should goto activate_locked
-						printk(KERN_DEBUG "[PHW]dismiss candidates'sbit_ref is 0\n");
-						/* Not a candidate for swapping, so reclaim swap space. */
-						if (folio_test_swapcache(not_pf_folio) &&
-								(mem_cgroup_swap_full(&not_pf_folio->page) ||
-								folio_test_mlocked(not_pf_folio)))
-							try_to_free_swap(&not_pf_folio->page);
-						VM_BUG_ON_FOLIO(folio_test_active(not_pf_folio), not_pf_folio);
-						if (!folio_test_mlocked(not_pf_folio)) {
-							int type = folio_is_file_lru(not_pf_folio);
-							folio_set_active(not_pf_folio);
-							stat->nr_activate[type] += not_pf_nr_pages;
-							count_memcg_folio_events(not_pf_folio, PGACTIVATE, not_pf_nr_pages);
+					if(nr_candidate == seq_thd){
+						// printk(KERN_DEBUG "[PHW]start_demote seqness:%d\tnr_can:%d\n", sequentialness, nr_candidate);
+						// pass all of page in candidate_pages to demote list
+						// list_splice(&candidate_pages, demote_pages); // it could be mess up order of pfn, avoid it. 
+						// list_add(&folio->lru, &candidate_pages);
+						while (!list_empty(&candidate_pages)) { // "&" for treat local(function) list
+							struct folio *folio_candidate = lru_to_folio(&candidate_pages);
+							struct page *tmp_page = &folio_candidate->page;
+							// printk(KERN_DEBUG "[PHW]demote pfn:0x%lx\tseqness:%d\tnr_can:%d\tfile?:%d\n", folio_pfn(folio_candidate), sequentialness, nr_candidate, folio_is_file_lru(folio_candidate));
+							list_del(&folio_candidate->lru);
+							set_bit(PG_pref, &tmp_page->flags);
+							list_add(&folio_candidate->lru, &demote_pages);
+							folio_unlock(folio_candidate); // all candidate are locked at start-code of main-while
+							nr_candidate--;
+							demoted_pf++;
 						}
 					}
-//my_keep_locked:
-                    folio_unlock(not_pf_folio);
-//my_keep:
-                    list_add(&not_pf_folio->lru, &ret_pages);
-                    // list_move(&not_pf_folio->lru, &ret_pages);
-                    VM_BUG_ON_FOLIO(folio_test_lru(not_pf_folio) ||
-                            folio_test_unevictable(not_pf_folio), not_pf_folio);
-					nr_candidate--;
-					sequentialness--;
-                }
-				printk(KERN_DEBUG "[PHW]after dismiss seq:%d\n", sequentialness);
-				sequentialness = 0;
-				// continue; // into comment, for handle current folio. bitch!
-            }
+					continue;
+				}
+			}else{ // [PHW] if current page is not part of sequential chunk, current candidate list is broken.
+				// printk(KERN_DEBUG "[PHW]not_seq_dismiss_on pfn:0x%lx\tseqness:%d\tnr_can:%d\n", cur_pfn, sequentialness, nr_candidate);
+				// 1. dismiss candidates
+				// 2. insert current page to candidates
+				flag_dismiss = true;
+			}
+		}else{ // [PHW] if current page is not referenced, current candidate list is broken.
+			// printk(KERN_DEBUG "[PHW]not_ref_dismiss_on pfn:0x%lx\tseqness:%d\tnr_can:%d\n", cur_pfn, sequentialness, nr_candidate);
+			// 1. dismiss candidates
+			// 2. insert current page to candidates
+			flag_dismiss = true;
+		}
 
-        }
-        switch (references) { /* [PHW] if page referenced, PAGEREF_ACTIVE or PAGEREF_KEEP will excute */
+		if(flag_dismiss && call_by_inactive){
+			// 1. dismiss candidates
+			// printk(KERN_DEBUG "[PHW]before dismiss in while cur_pfn:0x%lx\tprev_pfn:0x%lx\tseqness:%d\tnr_can:%d\n", cur_pfn, prev_pfn, sequentialness, nr_candidate);
+			while(!list_empty(&candidate_pages)){
+				struct folio *folio_candidate = lru_to_folio(&candidate_pages);
+				bool page_act = !(bit_ref & (1ULL << (nr_candidate-1)));// get recorded reference-bit, 0 == PAGEREF_ACTIVATE, 1 == PAGEREF_KEEP
+				// printk(KERN_DEBUG "[PHW]dismiss target:0x%lx\tref:%d\tseqness:%d\tnr_can:%d\n", folio_pfn(folio_candidate), page_act, sequentialness, nr_candidate);
+				list_del(&folio_candidate->lru);
+	 			// clone of label activate_locked:
+				if(page_act){
+					/* Not a candidate for swapping, so reclaim swap space. */
+					if (folio_test_swapcache(folio_candidate) &&
+						(mem_cgroup_swap_full(&folio_candidate->page) ||
+						folio_test_mlocked(folio_candidate)))
+						try_to_free_swap(&folio_candidate->page);
+					VM_BUG_ON_FOLIO(folio_test_active(folio_candidate), folio_candidate);
+					if (!folio_test_mlocked(folio_candidate)) {
+						int type = folio_is_file_lru(folio_candidate);
+						int tmp_nr_pages = folio_nr_pages(folio_candidate);
+						folio_set_active(folio_candidate);
+						stat->nr_activate[type] += tmp_nr_pages;
+						count_memcg_folio_events(folio_candidate, PGACTIVATE, nr_pages);
+					}
+				}
+				// clone of label keep_locked:
+				folio_unlock(folio_candidate);
+				// clone of label keep:
+				list_add(&folio_candidate->lru, &ret_pages);
+				VM_BUG_ON_FOLIO(folio_test_lru(folio_candidate) ||
+						folio_test_unevictable(folio_candidate), folio_candidate);
+
+				nr_candidate--;
+			}
+			sequentialness = 0;
+			// printk(KERN_DEBUG "[PHW]after dismiss in while cur_pfn:0x%lx\tprev_pfn:0x%lx\tseqness:%d\tnr_can:%d\n", cur_pfn, prev_pfn, sequentialness, nr_candidate);
+			// 2. insert current page to candidates
+			if(references == PAGEREF_ACTIVATE || references == PAGEREF_KEEP){ // [PHW] seq broke by ref page
+				bit_ref = (references == PAGEREF_ACTIVATE) ? (bit_ref & ~(1ULL << sequentialness)) : (bit_ref | (1ULL << sequentialness));
+				list_add(&folio->lru, &candidate_pages);
+				nr_candidate++;
+				sequentialness++;
+                continue;
+            }
+            // if seq chunk broked by non-ref page, non-ref page shouldn't be stop by "continue"
+		}
+
+		switch (references) {
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
 		case PAGEREF_KEEP:
@@ -2178,7 +2180,40 @@ activate_locked:
 			count_memcg_folio_events(folio, PGACTIVATE, nr_pages);
 		}
 keep_locked:
-		folio_unlock(folio);
+		// TODO dismiss if flag_ref is false
+		// QUESTION. is it necessary?
+		// if(!flag_ref_check){
+		// 	while(!list_empty(&candidate_pages)){
+		// 		struct folio *folio_candidate = lru_to_folio(&candidate_pages);
+		// 		bool page_activate = !(bit_ref & (1ULL << (nr_candidate-1)))// get recorded reference-bit, 0 == PAGEREF_ACTIVATE, 1 == PAGEREF_KEEP
+		// 		list_del(&folio_candidate->lru);
+	 	// 		// clone of label activate_locked:
+		// 		if(page_activate){
+		// 			/* Not a candidate for swapping, so reclaim swap space. */
+		// 			if (folio_test_swapcache(folio_candidate) &&
+		// 				(mem_cgroup_swap_full(&folio_candidate->page) ||
+		// 				folio_test_mlocked(folio_candidate)))
+		// 				try_to_free_swap(&folio_candidate->page);
+		// 			VM_BUG_ON_FOLIO(folio_test_active(folio_candidate), folio_candidate);
+		// 			if (!folio_test_mlocked(folio_candidate)) {
+		// 				int type = folio_is_file_lru(folio_candidate);
+		// 				folio_set_active(folio_candidate);
+		// 				stat->nr_activate[type] += nr_pages;
+		// 				count_memcg_folio_events(folio_candidate, PGACTIVATE, nr_pages);
+		// 			}
+		// 		}
+		// 		// clone of label keep_locked:
+		// 		folio_unlock(folio_candidate);
+		// 		// clone of label keep:
+		// 		list_add(&folio_candidate->lru, &ret_pages);
+		// 		VM_BUG_ON_FOLIO(folio_test_lru(folio_candidate) ||
+		// 				folio_test_unevictable(folio_candidate), folio_candidate);
+
+		// 		nr_candidate--;
+		// 	}
+		// 	sequentialness = 0; 
+		// }
+		folio_unlock(folio); // origin code
 keep:
 		if(!ref_checked){ // [PHW] handle dismiss pages
 			printk(KERN_DEBUG "[PHW]ref_unchecked, dismiss candidates in keep label start\n");
@@ -2255,10 +2290,48 @@ keep:
 	}
 	/* 'page_list' is always empty here */
 
+	// [PHW] TODO dismiss left candidate here
+	// 1. dismiss candidates
+	if(call_by_inactive){
+		// printk(KERN_DEBUG "[PHW]before dismiss_left in while seqness:%d\tnr_can:%d\n", sequentialness, nr_candidate);
+		while(!list_empty(&candidate_pages)){
+			struct folio *folio_candidate = lru_to_folio(&candidate_pages);
+			bool page_act = !(bit_ref & (1ULL << (nr_candidate-1)));// get recorded reference-bit, 0 == PAGEREF_ACTIVATE, 1 == PAGEREF_KEEP
+			// printk(KERN_DEBUG "[PHW]dismiss target:0x%lx\tref:%d\tseqness:%d\tnr_can:%d\n", folio_pfn(folio_candidate), page_act, sequentialness, nr_candidate);
+			list_del(&folio_candidate->lru);
+			// clone of label activate_locked:
+			if(page_act){
+				/* Not a candidate for swapping, so reclaim swap space. */
+				if (folio_test_swapcache(folio_candidate) &&
+					(mem_cgroup_swap_full(&folio_candidate->page) ||
+					folio_test_mlocked(folio_candidate)))
+					try_to_free_swap(&folio_candidate->page);
+				VM_BUG_ON_FOLIO(folio_test_active(folio_candidate), folio_candidate);
+				if (!folio_test_mlocked(folio_candidate)) {
+					int type = folio_is_file_lru(folio_candidate);
+					int nr_pages = folio_nr_pages(folio_candidate);
+					folio_set_active(folio_candidate);
+					stat->nr_activate[type] += nr_pages;
+					count_memcg_folio_events(folio_candidate, PGACTIVATE, nr_pages);
+				}
+			}
+			// clone of label keep_locked:
+			folio_unlock(folio_candidate);
+			// clone of label keep:
+			list_add(&folio_candidate->lru, &ret_pages);
+			VM_BUG_ON_FOLIO(folio_test_lru(folio_candidate) ||
+					folio_test_unevictable(folio_candidate), folio_candidate);
+
+			nr_candidate--;
+		}
+		// printk(KERN_DEBUG "[PHW]after dismiss_left in while seqness:%d\tnr_can:%d\n", sequentialness, nr_candidate);
+	}
+	/* 'candidate_pages' is always empty here */
+
 	/* Migrate folios selected for demotion */
 	printk(KERN_DEBUG "[PHW]demote_page_list before %d\n", nr_reclaimed);
 	nr_reclaimed += demote_page_list(&demote_pages, pgdat);
-	printk(KERN_DEBUG "[PHW]demote_page_list after %d\n", nr_reclaimed);
+	// printk(KERN_DEBUG "[PHW]demoted_pf:%u\tnr_reclaimed:%u\n", demoted_pf, nr_reclaimed);
 	/* Folios that could not be demoted are still in @demote_pages */
 	if (!list_empty(&demote_pages)) {
 		printk(KERN_DEBUG "[PHW]demote_page_list remain-retry\n");
@@ -2652,6 +2725,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum vm_event_item item;
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	bool stalled = false;
+	// printk(KERN_DEBUG "shrink_inactive_list start, lru:%d\n", lru);
 
 	while (unlikely(too_many_isolated(pgdat, file, sc))) {
 		if (stalled)
@@ -2686,7 +2760,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 		return 0;
 
 	nr_reclaimed = shrink_page_list(&page_list, pgdat, sc, &stat, false, true);
-	printk(KERN_DEBUG "[PHW]shrink done in shrink_inactive_list\n");
+
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
 	printk(KERN_DEBUG "[PHW]move_pages_to_lru done in shrink_inactive_list\n");
@@ -2979,6 +3053,7 @@ enum scan_balance {
  *
  * nr[0] = anon inactive pages to scan; nr[1] = anon active pages to scan
  * nr[2] = file inactive pages to scan; nr[3] = file active pages to scan
+ * [PHW]pf_list added, 
  */
 static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 			   unsigned long *nr)
@@ -2994,6 +3069,8 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	enum lru_list lru;
 
 	/* If we have no swap space, do not bother scanning anon pages. */
+	/* [PHW] i need to turn off swap(swapoff -a) 
+	 * this code should be ignore? */
 	if (!sc->may_swap || !can_reclaim_anon_pages(memcg, pgdat->node_id, sc)) {
 		scan_balance = SCAN_FILE;
 		goto out;
@@ -3068,8 +3145,12 @@ static void get_scan_count(struct lruvec *lruvec, struct scan_control *sc,
 	fraction[0] = ap;
 	fraction[1] = fp;
 	denominator = ap + fp;
+
 out:
 	for_each_evictable_lru(lru) {
+		if(lru == LRU_PF_FILE || lru == LRU_PF_ANON) // [PHW] hmmmmmmmm............
+			continue;
+
 		int file = is_file_lru(lru);
 		unsigned long lruvec_size;
 		unsigned long low, min;
@@ -3233,9 +3314,8 @@ static void shrink_lruvec(struct lruvec *lruvec, struct scan_control *sc)
 		unsigned long nr_scanned;
 
 		for_each_evictable_lru(lru) {
-			if(lru == LRU_PF_ANON || lru == LRU_PF_FILE){ // [PHW] i dont want to shrink pf list in this moment.
+			if( lru == LRU_PF_ANON || lru == LRU_PF_FILE) // [PHW] i don't want to shrink PF list at this moment
 				continue;
-			}
 			if (nr[lru]) {
 				nr_to_scan = min(nr[lru], SWAP_CLUSTER_MAX);
 				nr[lru] -= nr_to_scan;
