@@ -594,6 +594,10 @@ void folio_migrate_flags(struct folio *newfolio, struct folio *folio)
 
 	if (!folio_test_hugetlb(folio))
 		mem_cgroup_migrate(folio, newfolio);
+#ifdef CONFIG_SAMM
+	if(!folio_test_clear_pref(folio))
+		folio_set_pref(newfolio);
+#endif
 }
 EXPORT_SYMBOL(folio_migrate_flags);
 

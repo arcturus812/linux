@@ -155,8 +155,14 @@ enum zone_stat_item {
 	NR_ZONE_LRU_BASE, /* Used only for compaction and reclaim retry */
 	NR_ZONE_INACTIVE_ANON = NR_ZONE_LRU_BASE,
 	NR_ZONE_ACTIVE_ANON,
+#ifdef CONFIG_SAMM
+	NR_ZONE_PF_ANON,
+#endif
 	NR_ZONE_INACTIVE_FILE,
 	NR_ZONE_ACTIVE_FILE,
+#ifdef CONFIG_SAMM
+	NR_ZONE_PF_FILE,
+#endif
 	NR_ZONE_UNEVICTABLE,
 	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
 	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
@@ -172,8 +178,14 @@ enum node_stat_item {
 	NR_LRU_BASE,
 	NR_INACTIVE_ANON = NR_LRU_BASE, /* must match order of LRU_[IN]ACTIVE */
 	NR_ACTIVE_ANON,		/*  "     "     "   "       "         */
+#ifdef CONFIG_SAMM
+	NR_PF_ANON,
+#endif
 	NR_INACTIVE_FILE,	/*  "     "     "   "       "         */
 	NR_ACTIVE_FILE,		/*  "     "     "   "       "         */
+#ifdef CONFIG_SAMM
+	NR_PF_FILE,
+#endif
 	NR_UNEVICTABLE,		/*  "     "     "   "       "         */
 	NR_SLAB_RECLAIMABLE_B,
 	NR_SLAB_UNRECLAIMABLE_B,
@@ -273,13 +285,27 @@ static __always_inline bool vmstat_item_in_bytes(int idx)
  */
 #define LRU_BASE 0
 #define LRU_ACTIVE 1
+
+#ifdef CONFIG_SAMM
+#define LRU_PF 2
+#define LRU_FILE 3
+
+#else
 #define LRU_FILE 2
+
+#endif
 
 enum lru_list {
 	LRU_INACTIVE_ANON = LRU_BASE,
 	LRU_ACTIVE_ANON = LRU_BASE + LRU_ACTIVE,
+#ifdef CONFIG_SAMM
+	LRU_PF_ANON = LRU_BASE + LRU_PF,
+#endif
 	LRU_INACTIVE_FILE = LRU_BASE + LRU_FILE,
 	LRU_ACTIVE_FILE = LRU_BASE + LRU_FILE + LRU_ACTIVE,
+#ifdef CONFIG_SAMM
+	LRU_PF_FILE = LRU_BASE + LRU_FILE + LRU_PF,
+#endif
 	LRU_UNEVICTABLE,
 	NR_LRU_LISTS
 };
@@ -294,17 +320,31 @@ enum vmscan_throttle_state {
 
 #define for_each_lru(lru) for (lru = 0; lru < NR_LRU_LISTS; lru++)
 
+#ifdef CONFIG_SAMM
+#define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_PF_FILE; lru++)
+#else
 #define for_each_evictable_lru(lru) for (lru = 0; lru <= LRU_ACTIVE_FILE; lru++)
+#endif
 
 static inline bool is_file_lru(enum lru_list lru)
 {
+#ifdef CONFIG_SAMM
+	return (lru == LRU_INACTIVE_FILE || lru == LRU_ACTIVE_FILE || lru == LRU_PF_FILE);
+#else
 	return (lru == LRU_INACTIVE_FILE || lru == LRU_ACTIVE_FILE);
+#endif
 }
 
 static inline bool is_active_lru(enum lru_list lru)
 {
 	return (lru == LRU_ACTIVE_ANON || lru == LRU_ACTIVE_FILE);
 }
+
+#ifdef CONFIG_SAMM
+static inline bool is_pf_lru(enum lru_list lru){
+	return (lru == LRU_PF_ANON || lru == LRU_PF_FILE);
+}
+#endif
 
 #define ANON_AND_FILE 2
 

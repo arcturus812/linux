@@ -1422,8 +1422,14 @@ static const struct memory_stat memory_stats[] = {
 #endif
 	{ "inactive_anon",		NR_INACTIVE_ANON		},
 	{ "active_anon",		NR_ACTIVE_ANON			},
+#ifdef CONFIG_SAMM
+	{ "pf_anon",			NR_PF_ANON			},
+#endif
 	{ "inactive_file",		NR_INACTIVE_FILE		},
 	{ "active_file",		NR_ACTIVE_FILE			},
+#ifdef CONFIG_SAMM
+	{ "pf_file",			NR_PF_FILE			},
+#endif
 	{ "unevictable",		NR_UNEVICTABLE			},
 	{ "slab_reclaimable",		NR_SLAB_RECLAIMABLE_B		},
 	{ "slab_unreclaimable",		NR_SLAB_UNRECLAIMABLE_B		},
@@ -3876,9 +3882,13 @@ static int mem_cgroup_move_charge_write(struct cgroup_subsys_state *css,
 #endif
 
 #ifdef CONFIG_NUMA
-
+#ifdef CONFIG_SAMM
+#define LRU_ALL_FILE (BIT(LRU_INACTIVE_FILE) | BIT(LRU_ACTIVE_FILE) | BIT(LRU_PF_FILE))
+#define LRU_ALL_ANON (BIT(LRU_INACTIVE_ANON) | BIT(LRU_ACTIVE_ANON) | BIT(LRU_PF_ANON))
+#else
 #define LRU_ALL_FILE (BIT(LRU_INACTIVE_FILE) | BIT(LRU_ACTIVE_FILE))
 #define LRU_ALL_ANON (BIT(LRU_INACTIVE_ANON) | BIT(LRU_ACTIVE_ANON))
+#endif
 #define LRU_ALL	     ((1 << NR_LRU_LISTS) - 1)
 
 static unsigned long mem_cgroup_node_nr_lru_pages(struct mem_cgroup *memcg,

@@ -1183,8 +1183,14 @@ const char * const vmstat_text[] = {
 	"nr_free_pages",
 	"nr_zone_inactive_anon",
 	"nr_zone_active_anon",
+#ifdef CONFIG_SAMM
+	"nr_zone_pf_anon",
+#endif
 	"nr_zone_inactive_file",
 	"nr_zone_active_file",
+#ifdef CONFIG_SAMM
+	"nr_zone_pf_file",
+#endif
 	"nr_zone_unevictable",
 	"nr_zone_write_pending",
 	"nr_mlock",
@@ -1207,8 +1213,14 @@ const char * const vmstat_text[] = {
 	/* enum node_stat_item counters */
 	"nr_inactive_anon",
 	"nr_active_anon",
+#ifdef CONFIG_SAMM
+	"nr_pf_anon",
+#endif
 	"nr_inactive_file",
 	"nr_active_file",
+#ifdef CONFIG_SAMM
+	"nr_pf_file",
+#endif
 	"nr_unevictable",
 	"nr_slab_reclaimable",
 	"nr_slab_unreclaimable",
