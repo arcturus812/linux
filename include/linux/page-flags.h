@@ -201,6 +201,9 @@ enum pageflags {
 #ifdef CONFIG_SAMM
 	PG_pref,
 #endif
+#ifdef CONFIG_FREQ_PROMOTION
+	PG_promo,
+#endif
 };
 
 #define PAGEFLAGS_MASK		((1UL << NR_PAGEFLAGS) - 1)
@@ -488,6 +491,10 @@ PAGEFLAG(Active, active, PF_HEAD) __CLEARPAGEFLAG(Active, active, PF_HEAD)
 #ifdef CONFIG_SAMM
 PAGEFLAG(Pref, pref, PF_HEAD) __CLEARPAGEFLAG(Pref, pref, PF_HEAD)
 	TESTCLEARFLAG(Pref, pref, PF_HEAD)
+#endif
+#ifdef CONFIG_FREQ_PROMOTION
+PAGEFLAG(Promo, promo, PF_HEAD) __CLEARPAGEFLAG(Promo, promo, PF_HEAD)
+	TESTCLEARFLAG(Promo, promo, PF_HEAD)
 #endif
 PAGEFLAG(Workingset, workingset, PF_HEAD)
 	TESTCLEARFLAG(Workingset, workingset, PF_HEAD)

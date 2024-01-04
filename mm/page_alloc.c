@@ -7664,6 +7664,9 @@ static void __meminit pgdat_init_internals(struct pglist_data *pgdat)
 	pgdat_init_kcompactd(pgdat);
 
 	init_waitqueue_head(&pgdat->kswapd_wait);
+#ifdef CONFIG_FREQ_PROMOTION
+	init_waitqueue_head(&pgdat->kpromoted_wait);
+#endif
 	init_waitqueue_head(&pgdat->pfmemalloc_wait);
 
 	for (i = 0; i < NR_VMSCAN_THROTTLE; i++)

@@ -229,10 +229,19 @@ int overcommit_policy_handler(struct ctl_table *, int, void *, size_t *,
 #define PAGE_ALIGNED(addr)	IS_ALIGNED((unsigned long)(addr), PAGE_SIZE)
 
 #define lru_to_page(head) (list_entry((head)->prev, struct page, lru))
+#ifdef CONFIG_FREQ_PROMOTION
+#define lru_to_page_next(head) (list_entry((head)->next, struct page, lru))
+#endif
 static inline struct folio *lru_to_folio(struct list_head *head)
 {
 	return list_entry((head)->prev, struct folio, lru);
 }
+#ifdef CONFIG_FREQ_PROMOTION
+static inline struct folio *lru_to_folio_next(struct list_head *head)
+{
+	return list_entry((head)->next, struct folio, lru);
+}
+#endif
 
 void setup_initial_init_mm(void *start_code, void *end_code,
 			   void *end_data, void *brk);

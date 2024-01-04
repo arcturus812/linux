@@ -995,6 +995,10 @@ typedef struct pglist_data {
 					 * when throttling started. */
 	struct task_struct *kswapd;	/* Protected by
 					   mem_hotplug_begin/done() */
+#ifdef CONFIG_FREQ_PROMOTION
+	wait_queue_head_t kpromoted_wait;
+	struct task_struct *kpromoted;
+#endif /* CONFIG_SAMM */
 	int kswapd_order;
 	enum zone_type kswapd_highest_zoneidx;
 

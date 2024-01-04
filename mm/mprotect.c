@@ -90,7 +90,7 @@ static unsigned long change_pte_range(struct mmu_gather *tlb,
 #ifdef CONFIG_SAMM
 	int seq_thd 			= SAMM_SEQ_THRESHOLD;
 	pte_t *pte_back;
-	struct page *pf_pages[seq_thd];
+	struct page *pf_pages[SAMM_SEQ_THRESHOLD];
 	unsigned long addr_tmp;
 	unsigned long prev_pfn 	= 0x0;
 	int sequentialness 		= 0;

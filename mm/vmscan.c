@@ -2344,7 +2344,6 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 	while (scan < nr_to_scan && !list_empty(src)) {
 		struct list_head *move_to = src;
 		struct folio *folio;
-
 		folio = lru_to_folio(src);
 		prefetchw_prev_lru_folio(folio, src, flags);
 
@@ -2418,6 +2417,19 @@ move:
 	update_lru_sizes(lruvec, lru, nr_zone_taken);
 	return nr_taken;
 }
+#ifdef CONFIG_FREQ_PROMOTION
+/* [PHW] TODO isolate only contigous page*/
+/**
+ * isolate_cont_lru_pages() copy of isolate_lru_pages()
+ * 1. create temporal list
+ * 2. find contiguous page
+ * 3. check exceed number of isolated page
+ * 4. move page to return list(move_to)
+ * 5. update global n'th freq
+ * 
+ */
+
+#endif /* CONFIG_FREQ_PROMOTION */
 
 /**
  * folio_isolate_lru() - Try to isolate a folio from its LRU list.
@@ -2584,6 +2596,23 @@ static int current_may_throttle(void)
 {
 	return !(current->flags & PF_LOCAL_THROTTLE);
 }
+#ifdef CONFIG_FREQ_PROMOTION
+/**
+ * @TODO list
+ * 1. find non-contiguous page in pf_list 
+ * 2. check reference bit
+ * 3. move non-contiguous page into active/inactive list by using 2.
+ * @param nr_to_scan 
+ * @param lruvec 
+ * @param sc 
+ * @param lru 
+ * @return unsigned long 
+ * 
+ */
+// static unsigned long
+// shrink_pf_list(unsigned long nr_to_scan, struct lruvec *lruvec,
+// 		     struct scan_control *sc, enum lru_list lru)
+#endif
 
 /*
  * shrink_inactive_list() is a helper for shrink_node().  It returns the number
@@ -2750,7 +2779,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 				folio_unlock(folio);
 			}
 		}
-
 		/* Referenced or rmap lock contention: rotate */
 		if (folio_referenced(folio, 0, sc->target_mem_cgroup,
 				     &vm_flags) != 0) {
@@ -2867,6 +2895,11 @@ static unsigned long shrink_list(enum lru_list lru, unsigned long nr_to_scan,
 			sc->skipped_deactivate = 1;
 		return 0;
 	}
+#ifdef CONFIG_FREQ_PROMOTION
+	// else if(is_pf_lru(lru)){
+	// 	shrink_pf_list(nr_to_scan, lruvec, sc, lru);
+	// }
+#endif
 
 	return shrink_inactive_list(nr_to_scan, lruvec, sc, lru);
 }
@@ -3911,6 +3944,91 @@ static bool allow_direct_reclaim(pg_data_t *pgdat)
 	return wmark_ok;
 }
 
+#ifdef CONFIG_FREQ_PROMOTION
+static void kpromoted_try_to_sleep(pg_data_t *pgdat){
+	DEFINE_WAIT(wait);
+	if (freezing(current) || kthread_should_stop())
+		return;
+	prepare_to_wait(&pgdat->kpromoted_wait, &wait, TASK_INTERRUPTIBLE);
+	if (!kthread_should_stop())
+		schedule_timeout(HZ);
+	finish_wait(&pgdat->kpromoted_wait, &wait);
+}
+// static void scan_node(pg_data_t *pgdat, struct scan_control *sc){
+// 	struct mem_cgroup *target_memcg = sc->target_mem_cgroup;
+// 	struct mem_cgroup *memcg;
+// 	enum lru_list lru;
+
+// 	memcg = mem_cgroup_iter(target_memcg, NULL, NULL);
+// 	do{
+// 		struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+// 		unsigned long reclaimed;
+// 		unsigned long scanned;
+
+// 		cond_resched();
+// 		mem_cgroup_calculate_protection(target_memcg, memcg);
+// 		if(mem_cgroup_below_min(memcg)){
+// 			continue;
+// 		}else if(mem_cgroup_below_low(memcg)){
+// 			if(!sc->memcg_low_reclaim){
+// 				sc->memcg_low_skipped = 1;
+// 				continue;
+// 			}
+// 			memcg_memory_event(memcg, MEMCG_LOW);
+// 		}
+// 		reclaimed = sc->nr_reclaimed;
+// 		scanned = sc->nr_scanned;
+// 		// shrink_lruvec(lruvec, sc);
+// 		for_each_evictable_lru(lru){
+// 			unsigned long nr_to_scan = 1024;
+// 			shrink_list(lru, nr_to_scan, lruvec, sc);
+// 		}
+// 		/*[PHW] do i have to record part?*/
+// 		if (!sc->proactive)
+// 			vmpressure(sc->gfp_mask, memcg, false,
+// 				   sc->nr_scanned - scanned,
+// 				   sc->nr_reclaimed - reclaimed);
+// 	}while((memcg = mem_cgroup_iter(target_memcg, memcg, NULL)));
+// }
+static int kpromoted(void *p){
+	int lru;
+	pg_data_t *pgdat = (pg_data_t*)p;
+	struct mem_cgroup_reclaim_cookie reclaim={
+		.pgdat = pgdat,
+		// .priority = DEF_PRIORITY,
+	};
+	struct reclaim_state reclaim_state = {
+		.reclaimed_slab = 0,
+	};
+	struct mem_cgroup *root = NULL;
+	struct mem_cgroup *memcg = mem_cgroup_iter(root, NULL, &reclaim);
+	struct lruvec *lruvec = mem_cgroup_lruvec(memcg, pgdat);
+	struct zone *zone = &pgdat->node_zones[ZONE_NORMAL];
+	struct scan_control sc = {
+		.nr_to_reclaim = SWAP_CLUSTER_MAX,
+		.priority = DEF_PRIORITY,
+		.may_writepage = !laptop_mode,
+		.may_unmap = 1,
+		.may_swap = 1,
+		.reclaim_idx = MAX_NR_ZONES - 1,
+		.target_mem_cgroup = memcg,
+	};
+	current->reclaim_state = &reclaim_state;
+
+	for( ; ; ){ /* main loop */
+		// scan_node(pgdat, &sc);
+		printk("kpromoted working\n");
+		if(kthread_should_stop()){
+			break;
+		}
+		// try to sleep
+		kpromoted_try_to_sleep(pgdat);
+	}
+	current->reclaim_state = NULL;
+	return 0;
+}
+#endif /* CONFIG_FREQ_PROMOTION */
+
 /*
  * Throttle direct reclaimers if backing storage is backed by the network
  * and the PFMEMALLOC reserve for the preferred node is getting dangerously
@@ -4841,12 +4959,15 @@ unsigned long shrink_all_memory(unsigned long nr_to_reclaim)
 /*
  * This kswapd start function will be called by init and node-hot-add.
  */
-void kswapd_run(int nid)
+int kswapd_run(int nid)
 {
 	pg_data_t *pgdat = NODE_DATA(nid);
+	printk("[PHW]debug kswapd_run nid:%d\n", nid);
 
-	if (pgdat->kswapd)
-		return;
+	if (pgdat->kswapd){
+		printk("kswapd already running at node %d\n", nid);
+		return 0;
+	}
 
 	pgdat->kswapd = kthread_run(kswapd, pgdat, "kswapd%d", nid);
 	if (IS_ERR(pgdat->kswapd)) {
@@ -4855,6 +4976,23 @@ void kswapd_run(int nid)
 		pr_err("Failed to start kswapd on node %d\n", nid);
 		pgdat->kswapd = NULL;
 	}
+#ifdef CONFIG_FREQ_PROMOTION
+	if(pgdat->kpromoted){
+		printk("kpromoted already running nid(%d)\n", nid);
+		return 0;
+	}
+	if(nid == 0){
+		printk("kpromoted run skip at nid(%d)\n", nid);
+		return 0;
+	}
+	pgdat->kpromoted = kthread_run(kpromoted, pgdat, "kpromoted%d", nid);
+	if(IS_ERR(pgdat->kpromoted)){
+		BUG_ON(system_state < SYSTEM_RUNNING);
+		pr_err("Failed to start kpromoted at node %d\n", nid);
+		pgdat->kpromoted = NULL;
+	}
+#endif /* CONFIG_FREQ_PROMOTION */
+	return 0;
 }
 
 /*
@@ -4864,11 +5002,20 @@ void kswapd_run(int nid)
 void kswapd_stop(int nid)
 {
 	struct task_struct *kswapd = NODE_DATA(nid)->kswapd;
+#ifdef CONFIG_FREQ_PROMOTION
+	struct task_struct *kpromoted = NODE_DATA(nid)->kpromoted;
+#endif
 
 	if (kswapd) {
 		kthread_stop(kswapd);
 		NODE_DATA(nid)->kswapd = NULL;
 	}
+#ifdef CONFIG_FREQ_PROMOTION
+	if(kpromoted){
+		kthread_stop(kpromoted);
+		NODE_DATA(nid)->kpromoted = NULL;
+	}
+#endif
 }
 
 static int __init kswapd_init(void)
